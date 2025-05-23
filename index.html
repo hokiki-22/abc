@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>性状分离比 - 终极适配整合版</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f2f2f2;
+      margin: 0;
+      padding: 15px;
+    }
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .wheel-container {
+      position: relative;
+      width: 260px;
+      height: 260px;
+    }
+    canvas.wheel {
+      width: 100%;
+      height: 100%;
+    }
+    .pointer {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 5px;
+      height: 120px;
+      background: #333;
+      transform-origin: top center;
+      transform: translate(-50%, 0) rotate(0deg);
+      z-index: 2;
+      transition: transform 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+    .pointer::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: -8px;
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 15px solid #333;
+    }
+    .chart-table-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+      min-width: 300px;
+      max-width: 380px;
+    }
+    #chartContainer {
+      height: 220px;
+    }
+    #tableContainer table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 14px;
+    }
+    #tableContainer th, #tableContainer td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: center;
+    }
+    #logContainer {
+      width: 100%;
+      max-width: 500px;
+      margin: 10px auto 0 auto;
+    }
+    #logOutput {
+      width: 100%;
+      height: 80px;
+      resize: none;
+      padding: 10px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      font-family: Consolas, monospace;
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .controls > div {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+    .controls button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #startBtn { background: #00c853; color: white; }
+    #stopBtn { background: #d50000; color: white; display: none; }
+    .manual-btn { background: #2196F3; color: white; }
+    input[type="number"] {
+      padding: 6px;
+      width: 80px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    h4 {
+      text-align: center;
+      margin: 8px 0 0 0;
+    }
+
+    /* 📱 移动端适配 */
+    @media (max-width: 600px) {
+      .container {
+        flex-direction: column;
+        align-items: center;
+      }
+      .chart-table-container {
+        width: 100%;
+        max-width: none;
+      }
+      .wheel-container {
+        width: 200px;
+        height: 200px;
+      }
+      canvas.wheel {
+        width: 100%;
+        height: 100%;
+      }
+      .pointer {
+        height: 100px;
+      }
+      .controls {
+        flex-direction: column;
+        gap: 12px;
+      }
+      .controls > div {
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      #logOutput {
+        font-size: 12px;
+        height: 100px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <div>
+      <button class="manual-btn" onclick="manualSimulate()">🎡 转动转盘</button>
+      <input type="number" id="singleSimNum" value="1" min="1" style="width: 60px;">
+      <label>次</label>
+      <button onclick="resetCounts()" style="background: #ff9800; color: white;">🔄 重置数据</button>
+    </div>
+    <div>
+      <button id="startBtn" onclick="startSimulation()">▶️ 多次模拟</button>
+      <input type="number" id="simSpeed" value="200" min="100" max="2000" style="width: 80px;">
+      <label>ms / 次</label>
+      <button id="stopBtn" onclick="stopSimulation()">⏹ 停止模拟</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="wheel-container">
+      <canvas id="femaleWheel" class="wheel"></canvas>
+      <div class="pointer" id="femalePointer"></div>
+      <h4>雌配子 (10分区)</h4>
+    </div>
+
+    <div class="wheel-container">
+      <canvas id="maleWheel" class="wheel"></canvas>
+      <div class="pointer" id="malePointer"></div>
+      <h4>雄配子 (20分区)</h4>
+    </div>
+
+    <div class="chart-table-container">
+      <h4>基因型比例柱状图</h4>
+      <div id="chartContainer"><canvas id="myChart"></canvas></div>
+      <h4>基因型统计表</h4>
+      <div id="tableContainer"></div>
+    </div>
+  </div>
+
+  <div id="logContainer">
+    <h4>每次模拟记录：</h4>
+    <textarea id="logOutput" readonly></textarea>
+  </div>
+<script>
+  const femaleAlleles = ['d','D','d','D','d','D','d','D','d','D'];
+  const maleAlleles = ['D','d','D','d','D','d','D','d','D','d','D','d','D','d','D','d','D','d','D','d'];
+
+  let counts = { DD: 0, Dd: 0, dd: 0 }, total = 0, isSimulating = false, chart;
+  let logCount = 0;
+
+  function drawWheel(canvasId, segments, alleles) {
+    const canvas = document.getElementById(canvasId);
+    const ctx = canvas.getContext("2d");
+    const size = 260;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = size * ratio;
+    canvas.height = size * ratio;
+    canvas.style.width = size + "px";
+    canvas.style.height = size + "px";
+    ctx.scale(ratio, ratio);
+
+    const center = size / 2;
+    const radius = center - 10;
+    const angleStep = (2 * Math.PI) / segments;
+
+    for (let i = 0; i < segments; i++) {
+      ctx.beginPath();
+      ctx.moveTo(center, center);
+      ctx.arc(center, center, radius, i * angleStep, (i + 1) * angleStep);
+      ctx.fillStyle = alleles[i] === 'D' ? '#4e79a7' : '#e15759';
+      ctx.fill();
+
+      const angle = i * angleStep + angleStep / 2;
+      const textX = center + Math.cos(angle) * radius * 0.6;
+      const textY = center + Math.sin(angle) * radius * 0.6;
+
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(alleles[i], textX, textY);
+    }
+  }
+
+  drawWheel("femaleWheel", 10, femaleAlleles);
+  drawWheel("maleWheel", 20, maleAlleles);
+
+  function rotatePointer(id, segments, index, offsetDeg = -90) {
+    const anglePer = 360 / segments;
+    const rotation = index * anglePer + anglePer / 2 + offsetDeg;
+    document.getElementById(id).style.transform = `translate(-50%, 0) rotate(${rotation}deg)`;
+  }
+
+  function initChart() {
+    const ctx = document.getElementById("myChart").getContext("2d");
+    chart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: ["DD", "Dd", "dd"],
+        datasets: [{
+          data: [0, 0, 0],
+          backgroundColor: ["#4e79a7", "#59a14f", "#e15759"],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: 0,
+            max: 1,
+            ticks: {
+              callback: val => `${(val * 100).toFixed(0)}%`,
+              stepSize: 0.25
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function updateDisplay() {
+    chart.data.datasets[0].data = [
+      counts.DD / total || 0,
+      counts.Dd / total || 0,
+      counts.dd / total || 0
+    ];
+    chart.update();
+
+    document.getElementById("tableContainer").innerHTML = `
+      <table>
+        <tr><th>基因型</th><th>次数</th><th>比例</th></tr>
+        <tr><td>DD</td><td>${counts.DD}</td><td>${(counts.DD / total * 100 || 0).toFixed(1)}%</td></tr>
+        <tr><td>Dd</td><td>${counts.Dd}</td><td>${(counts.Dd / total * 100 || 0).toFixed(1)}%</td></tr>
+        <tr><td>dd</td><td>${counts.dd}</td><td>${(counts.dd / total * 100 || 0).toFixed(1)}%</td></tr>
+        <tr><td>总计</td><td>${total}</td><td>100%</td></tr>
+      </table>
+    `;
+  }
+
+  function simulate(n = 1) {
+    for (let i = 0; i < n; i++) {
+      const fIndex = Math.floor(Math.random() * 10);
+      const mIndex = Math.floor(Math.random() * 20);
+
+      rotatePointer('femalePointer', 10, fIndex, -90);
+      rotatePointer('malePointer', 20, mIndex, -90);
+
+      const fAllele = femaleAlleles[fIndex];
+      const mAllele = maleAlleles[mIndex];
+      const sorted = [fAllele, mAllele].sort().join('');
+      const genotype = sorted === 'Dd' ? 'Dd' : sorted;
+
+      counts[genotype]++;
+      total++;
+      logCount++;
+
+      document.getElementById("logOutput").value =
+        `第${logCount}次：雌：${fAllele} + 雄：${mAllele} → ${genotype}\n` +
+        document.getElementById("logOutput").value;
+    }
+    updateDisplay();
+  }
+
+  function manualSimulate() {
+    const n = parseInt(document.getElementById("singleSimNum").value) || 1;
+    simulate(n);
+  }
+
+  function startSimulation() {
+    isSimulating = true;
+    document.getElementById("startBtn").style.display = "none";
+    document.getElementById("stopBtn").style.display = "inline-block";
+
+    const speed = parseInt(document.getElementById("simSpeed").value);
+    const run = () => {
+      if (!isSimulating) return;
+      simulate(1);
+      setTimeout(run, speed);
+    };
+    run();
+  }
+
+  function stopSimulation() {
+    isSimulating = false;
+    document.getElementById("startBtn").style.display = "inline-block";
+    document.getElementById("stopBtn").style.display = "none";
+  }
+
+  function resetCounts() {
+    counts = { DD: 0, Dd: 0, dd: 0 };
+    total = 0;
+    logCount = 0;
+    rotatePointer("femalePointer", 10, 0, -90);
+    rotatePointer("malePointer", 20, 0, -90);
+    document.getElementById("logOutput").value = "";
+    updateDisplay();
+  }
+
+  window.onload = () => {
+    initChart();
+    updateDisplay();
+    rotatePointer("femalePointer", 10, 0, -90);
+    rotatePointer("malePointer", 20, 0, -90);
+  };
+</script>
+</body>
+</html>
